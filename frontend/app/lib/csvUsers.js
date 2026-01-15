@@ -13,11 +13,17 @@ export function parseCsvFile(file) {
   });
 }
 
+const toNum = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+};
+
 export function normalizeRow(row) {
-  const t = (row.userType || row.usertype || row.type || "").toLowerCase();
+  const t = (row.userType || row.usertype || row.type || "").toLowerCase().trim();
 
   return {
     userType: t || "student",
+
     registration_no:
       row.registration_no ||
       row.reg ||
@@ -25,10 +31,22 @@ export function normalizeRow(row) {
       row.RegNo ||
       row.registrationNo ||
       "",
+
     name: row.name || row.fullname || row.full_name || "",
     father_name: row.father_name || row.father || row.fatherName || "",
-    semester: row.semester ? Number(row.semester) : undefined,
-    field: row.field || row.department || "",
+
+    // ✅ academic fields
+    department: row.department || row.dept || row.Department || "",
+    program: row.program || row.Program || row.field || row.Field || "", // backward support: field -> program
+    level: row.level || row.Level || row.degree || row.Degree || "",
+
+    // ✅ student fields
+    semester: row.semester !== undefined && row.semester !== "" ? toNum(row.semester) : undefined,
+    batchYear: row.batchYear !== undefined && row.batchYear !== "" ? toNum(row.batchYear) : undefined,
+    section: row.section || row.Section || "",
+    shift: row.shift || row.Shift || "",
+    status: row.status || row.Status || "Active",
+
     email: row.email || "",
     password: row.password || "",
     contact_no: row.contact_no || row.contact || "",

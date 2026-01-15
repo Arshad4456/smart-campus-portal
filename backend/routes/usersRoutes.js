@@ -3,9 +3,29 @@ import express from "express";
 import UsersModel from "../models/UsersModel.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 
-// import bycrypt from "bycryptjs"
-
 const router = express.Router();
+
+/** ✅ helpers: plural/singular normalize */
+const toSingularUserType = (t = "") => {
+  const map = {
+    admins: "admin",
+    students: "student",
+    faculties: "faculty",
+    monitors: "monitor",
+  };
+  return map[t] || t;
+};
+
+const toPluralListName = (t = "") => {
+  const singular = toSingularUserType(t);
+  const map = {
+    admin: "admins",
+    student: "students",
+    faculty: "faculties",
+    monitor: "monitors",
+  };
+  return map[singular] || `${singular}s`;
+};
 
 /*=========================================
    GET ALL USERS
@@ -19,8 +39,8 @@ router.get("/", authMiddleware, async (req, res) => {
   }
 });
 
- /**
- * POST /api/users/login  
+/**
+ * POST /api/users/login
  * Login user by registration_no + password + userType
  */
 router.post("/login", async (req, res) => {
@@ -28,11 +48,18 @@ router.post("/login", async (req, res) => {
 
   try {
     const portalData = await UsersModel.findOne();
-    if (!portalData || !portalData[userType]) {
+    if (!portalData) {
+      return res.status(404).json({ success: false, message: "Database empty" });
+    }
+
+    // ✅ accept both "admins" and "admin" etc.
+    const listName = toPluralListName(userType);
+
+    if (!portalData[listName]) {
       return res.status(404).json({ success: false, message: "User type not found" });
     }
 
-    const user = portalData[userType].find(u => u.registration_no === registration_no);
+    const user = portalData[listName].find((u) => u.registration_no === registration_no);
     if (!user) {
       return res.status(401).json({ success: false, message: "Username not found" });
     }
@@ -41,21 +68,22 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ success: false, message: "Incorrect password" });
     }
 
+    // ✅ IMPORTANT: store singular role in token
+    const role = toSingularUserType(userType);
+
     const token = jwt.sign(
-  { registration_no: user.registration_no, userType }, // payload
-  process.env.JWT_SECRET,
-  { expiresIn: "2h" }
-);
+      { registration_no: user.registration_no, userType: role }, // payload
+      process.env.JWT_SECRET,
+      { expiresIn: "2h" }
+    );
 
-res.json({
-  success: true,
-  message: "Login successful",
-  role: userType,
-  user,
-  token,
-});
-
-
+    return res.json({
+      success: true,
+      message: "Login successful",
+      role, // ✅ singular role
+      user,
+      token,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: "Server error" });
@@ -72,7 +100,7 @@ router.post("/add", authMiddleware, async (req, res) => {
     if (contentType.includes("multipart/form-data")) {
       return res.status(415).json({
         success: false,
-        message: "Send JSON. CSV is parsed client-side in frontend."
+        message: "Send JSON. CSV is parsed client-side in frontend.",
       });
     }
 
@@ -89,9 +117,7 @@ router.post("/add", authMiddleware, async (req, res) => {
       }
 
       // Build a set of existing registration numbers (case-insensitive)
-      const existing = new Set(
-        (db[listName] || []).map((u) => normalizeReg(u.registration_no))
-      );
+      const existing = new Set((db[listName] || []).map((u) => normalizeReg(u.registration_no)));
 
       let added = 0;
       let skipped = 0;
@@ -100,7 +126,6 @@ router.post("/add", authMiddleware, async (req, res) => {
       for (const user of usersToAdd) {
         const reg = normalizeReg(user?.registration_no);
         if (!reg) {
-          // no registration -> skip
           skipped++;
           skippedRegs.push("(missing registration_no)");
           continue;
@@ -125,7 +150,8 @@ router.post("/add", authMiddleware, async (req, res) => {
     // body: { userType, user }
     // =========================
     if (body.userType && body.user) {
-      const list = body.userType.toLowerCase() + "s";
+      // ✅ accept admin/admins etc.
+      const list = toPluralListName(body.userType);
 
       if (!db[list]) {
         return res.status(400).json({ success: false, message: "Invalid user type" });
@@ -137,9 +163,7 @@ router.post("/add", authMiddleware, async (req, res) => {
       return res.json({
         success: true,
         message:
-          result.added === 1
-            ? "Single user added!"
-            : "Duplicate registration_no. User not added.",
+          result.added === 1 ? "Single user added!" : "Duplicate registration_no. User not added.",
         added: result.added,
         skipped: result.skipped,
         skippedRegs: result.skippedRegs,
@@ -184,7 +208,6 @@ router.post("/add", authMiddleware, async (req, res) => {
   }
 });
 
-
 /*=========================================
    EDIT USER
 =========================================*/
@@ -198,7 +221,7 @@ router.put("/edit", authMiddleware, async (req, res) => {
     if (!registration_no || !userType || !updateData) {
       return res.status(400).json({
         success: false,
-        message: "Missing required fields."
+        message: "Missing required fields.",
       });
     }
 
@@ -207,7 +230,8 @@ router.put("/edit", authMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, message: "Database empty" });
     }
 
-    const list = userType.toLowerCase() + "s"; // admin -> admins, student -> students
+    // ✅ accept admin/admins etc.
+    const list = toPluralListName(userType);
 
     if (!db[list]) {
       return res.status(400).json({ success: false, message: "Invalid user type" });
@@ -239,7 +263,6 @@ router.put("/edit", authMiddleware, async (req, res) => {
   }
 });
 
-
 /*=========================================
    CHANGE PASSWORD
 =========================================*/
@@ -254,7 +277,9 @@ router.put("/change-password", authMiddleware, async (req, res) => {
     const db = await UsersModel.findOne();
     if (!db) return res.status(404).json({ success: false, message: "Database empty" });
 
-    const list = userType.toLowerCase() + "s"; // admin -> admins
+    // ✅ accept admin/admins etc.
+    const list = toPluralListName(userType);
+
     if (!db[list]) return res.status(400).json({ success: false, message: "Invalid user type" });
 
     const index = db[list].findIndex((u) => u.registration_no === registration_no);
@@ -262,7 +287,6 @@ router.put("/change-password", authMiddleware, async (req, res) => {
 
     const user = db[list][index];
 
-    // ✅ current password check (your project currently stores plain passwords)
     if (user.password !== currentPassword) {
       return res.status(401).json({ success: false, message: "Current password is incorrect" });
     }
@@ -277,8 +301,6 @@ router.put("/change-password", authMiddleware, async (req, res) => {
   }
 });
 
-
-
 /*=========================================
    DELETE USER
 =========================================*/
@@ -289,9 +311,10 @@ router.delete("/delete", authMiddleware, async (req, res) => {
     const db = await UsersModel.findOne();
     if (!db) return res.json({ success: false, message: "DB missing" });
 
-    const list = userType.toLowerCase() + "s";
+    // ✅ accept admin/admins etc.
+    const list = toPluralListName(userType);
 
-    db[list] = db[list].filter(u => u.registration_no !== registration_no);
+    db[list] = db[list].filter((u) => u.registration_no !== registration_no);
     await db.save();
 
     res.json({ success: true, message: "User deleted!" });

@@ -23,6 +23,8 @@ const AddUserModal = ({
     return true;
   };
 
+  const showAcademic = newUserType === "student" || newUserType === "faculty";
+  const isStudent = newUserType === "student";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -53,7 +55,7 @@ const AddUserModal = ({
               value={newUser.registration_no}
               onChange={(e) => setNewUser({ ...newUser, registration_no: e.target.value })}
               className="border p-2 rounded w-full"
-              placeholder="e.g. admin001"
+              placeholder="e.g. stu001"
             />
           </div>
 
@@ -75,7 +77,50 @@ const AddUserModal = ({
             />
           </div>
 
-          {newUserType === "student" && (
+          {/* Academic (Student + Faculty) */}
+          {showAcademic && (
+            <div>
+              <label className="text-sm">Department</label>
+              <input
+                value={newUser.department || ""}
+                onChange={(e) => setNewUser({ ...newUser, department: e.target.value })}
+                className="border p-2 rounded w-full"
+                placeholder="e.g. CS & IT"
+              />
+            </div>
+          )}
+
+          {showAcademic && (
+            <div>
+              <label className="text-sm">Level</label>
+              <select
+                value={newUser.level || ""}
+                onChange={(e) => setNewUser({ ...newUser, level: e.target.value })}
+                className="border p-2 rounded w-full"
+              >
+                <option value="">Select Level</option>
+                <option value="BS">BS</option>
+                <option value="MS">MS</option>
+                <option value="MPhil">MPhil</option>
+                <option value="PhD">PhD</option>
+              </select>
+            </div>
+          )}
+
+          {showAcademic && (
+            <div>
+              <label className="text-sm">Program</label>
+              <input
+                value={newUser.program || ""}
+                onChange={(e) => setNewUser({ ...newUser, program: e.target.value })}
+                className="border p-2 rounded w-full"
+                placeholder="e.g. BS Computer Science"
+              />
+            </div>
+          )}
+
+          {/* Student-only */}
+          {isStudent && (
             <div>
               <label className="text-sm">Semester</label>
               <input
@@ -92,15 +137,63 @@ const AddUserModal = ({
             </div>
           )}
 
-          {newUserType === "student" && (
+          {isStudent && (
             <div>
-              <label className="text-sm">Field</label>
+              <label className="text-sm">Batch Year</label>
               <input
-                value={newUser.field}
-                onChange={(e) => setNewUser({ ...newUser, field: e.target.value })}
+                type="number"
+                value={newUser.batchYear || ""}
+                onChange={(e) =>
+                  setNewUser({
+                    ...newUser,
+                    batchYear: e.target.value ? Number(e.target.value) : "",
+                  })
+                }
                 className="border p-2 rounded w-full"
-                placeholder="e.g. CS / IT"
+                placeholder="e.g. 2023"
               />
+            </div>
+          )}
+
+          {isStudent && (
+            <div>
+              <label className="text-sm">Section</label>
+              <input
+                value={newUser.section || ""}
+                onChange={(e) => setNewUser({ ...newUser, section: e.target.value })}
+                className="border p-2 rounded w-full"
+                placeholder="e.g. A"
+              />
+            </div>
+          )}
+
+          {isStudent && (
+            <div>
+              <label className="text-sm">Shift</label>
+              <select
+                value={newUser.shift || ""}
+                onChange={(e) => setNewUser({ ...newUser, shift: e.target.value })}
+                className="border p-2 rounded w-full"
+              >
+                <option value="">Select Shift</option>
+                <option value="Morning">Morning</option>
+                <option value="Evening">Evening</option>
+              </select>
+            </div>
+          )}
+
+          {isStudent && (
+            <div>
+              <label className="text-sm">Status</label>
+              <select
+                value={newUser.status || "Active"}
+                onChange={(e) => setNewUser({ ...newUser, status: e.target.value })}
+                className="border p-2 rounded w-full"
+              >
+                <option value="Active">Active</option>
+                <option value="Alumni">Alumni</option>
+                <option value="Left">Left</option>
+              </select>
             </div>
           )}
 
@@ -166,7 +259,8 @@ const AddUserModal = ({
               onSubmit();
             }}
             className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
-            > Add User
+          >
+            Add User
           </button>
         </div>
       </div>

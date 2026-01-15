@@ -1,4 +1,3 @@
-// app/dashboards/admin/components/UsersManager.js
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -28,25 +27,8 @@ const authHeaders = (token) => ({
   "Content-Type": "application/json",
 });
 
-// If you ever store plural: admins/students -> backend needs singular: admin/student
 const toSingular = (t) => {
-  const map = {
-    admins: "admin",
-    students: "student",
-    faculties: "faculty",
-    monitors: "monitor",
-  };
-  return map[t] || t; // if already singular, keep it
-};
-
-// Optional: convert singular -> plural when needed
-const toPlural = (t) => {
-  const map = {
-    admin: "admins",
-    student: "students",
-    faculty: "faculties",
-    monitor: "monitors",
-  };
+  const map = { admins: "admin", students: "student", faculties: "faculty", monitors: "monitor" };
   return map[t] || t;
 };
 
@@ -69,8 +51,19 @@ const UsersManager = () => {
     name: "",
     father_name: "",
     registration_no: "",
+
+    department: "",
+    program: "",
+    level: "",
+
     semester: "",
-    field: "",
+
+    // ✅ new student-only fields
+    batchYear: "",
+    section: "",
+    shift: "",
+    status: "Active",
+
     email: "",
     password: "",
     contact_no: "",
@@ -79,7 +72,6 @@ const UsersManager = () => {
 
   const [selectedUser, setSelectedUser] = useState(null);
   const [editData, setEditData] = useState({});
-  const [showPasswordEdit, setShowPasswordEdit] = useState(false);
 
   // -----------------------
   // FETCH USERS
@@ -96,7 +88,6 @@ const UsersManager = () => {
       const data = await res.json();
 
       if (!res.ok || !data?.success) {
-        // If backend says unauthorized, session ended
         if (res.status === 401) {
           localStorage.removeItem("scp_token");
           localStorage.removeItem("scp_user");
@@ -116,7 +107,14 @@ const UsersManager = () => {
         ...(payload.students?.map((u) => ({ ...u, userType: "student" })) || []),
       ];
 
-      setAllUsers(merged);
+      // ✅ backward support: old users might have "field"
+      const normalized = merged.map((u) => ({
+        ...u,
+        program: u.program ?? u.field ?? "",
+        status: u.status ?? "Active",
+      }));
+
+      setAllUsers(normalized);
     } catch (err) {
       console.error("Error fetching users:", err);
     }
@@ -162,18 +160,15 @@ const UsersManager = () => {
 
   const handleSort = (field) => setSortField(field);
 
+  // COUNTS
+  const counts = useMemo(() => {
+    const total = allUsers.length;
+    const admins = allUsers.filter((u) => u.userType === "admin").length;
+    const monitors = allUsers.filter((u) => u.userType === "monitor").length;
+    const students = allUsers.filter((u) => u.userType === "student").length;
 
-
-  // COUNTS (based on allUsers, not filteredUsers)
-const counts = useMemo(() => {
-  const total = allUsers.length;
-  const admins = allUsers.filter((u) => u.userType === "admin").length;
-  const monitors = allUsers.filter((u) => u.userType === "monitor").length;
-  const students = allUsers.filter((u) => u.userType === "student").length;
-
-  return { total, admins, monitors, students };
-}, [allUsers]);
-
+    return { total, admins, monitors, students };
+  }, [allUsers]);
 
   // -----------------------
   // PAGINATION
@@ -188,14 +183,37 @@ const counts = useMemo(() => {
   // -----------------------
   const exportCSV = () => {
     const csvRows = [
-      ["userType", "registration_no", "name", "father_name", "semester", "field", "email", "password", "contact_no", "address"],
+      [
+        "userType",
+        "registration_no",
+        "name",
+        "father_name",
+        "department",
+        "program",
+        "level",
+        "semester",
+        "batchYear",
+        "section",
+        "shift",
+        "status",
+        "email",
+        "password",
+        "contact_no",
+        "address",
+      ],
       ...filteredUsers.map((u) => [
         u.userType || "",
         u.registration_no || "",
         u.name || "",
         u.father_name || "",
+        u.department || "",
+        u.program || "",
+        u.level || "",
         u.semester ?? "",
-        u.field || "",
+        u.batchYear ?? "",
+        u.section || "",
+        u.shift || "",
+        u.status || "Active",
         u.email || "",
         "", // never export passwords
         u.contact_no || "",
@@ -277,8 +295,18 @@ const counts = useMemo(() => {
           name: "",
           father_name: "",
           registration_no: "",
+
+          department: "",
+          program: "",
+          level: "",
+
           semester: "",
-          field: "",
+
+          batchYear: "",
+          section: "",
+          shift: "",
+          status: "Active",
+
           email: "",
           password: "",
           contact_no: "",
@@ -301,62 +329,30 @@ const counts = useMemo(() => {
     setSelectedUser(user);
 
     setEditData({
-      userType: user.userType || "",
       _id: user._id || "",
+      userType: user.userType || "",
+      registration_no: user.registration_no || "",
       name: user.name || "",
       father_name: user.father_name || "",
-      registration_no: user.registration_no || "",
+
+      department: user.department || "",
+      program: user.program ?? user.field ?? "",
+      level: user.level || "",
+
       semester: user.semester ?? "",
-      field: user.field || "",
+
+      batchYear: user.batchYear ?? "",
+      section: user.section || "",
+      shift: user.shift || "",
+      status: user.status || "Active",
+
       email: user.email || "",
       password: "",
       contact_no: user.contact_no || "",
       address: user.address || "",
     });
 
-    setShowPasswordEdit(false);
     setOpenEdit(true);
-  };
-
-  // -----------------------
-  // EDIT USER
-  // -----------------------
-  const editUser = async (registration_no, userType, data) => {
-    const token = getTokenOrRedirect();
-    if (!token) return;
-
-    try {
-      const payload = { ...data };
-
-      // if password empty -> don't update
-      if (!payload.password) delete payload.password;
-
-      // remove fields that shouldn't be updated
-      delete payload.registration_no;
-      delete payload.userType;
-      delete payload._id;
-
-      const response = await axios.put(
-        `${API_BASE}/edit`,
-        {
-          registration_no,
-          userType: toSingular(userType),
-          updatedData: payload,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      if (response.data.success) {
-        alert("User updated successfully!");
-        setOpenEdit(false);
-        fetchUsers();
-      } else {
-        alert(response.data.message || "Update failed");
-      }
-    } catch (error) {
-      const msg = error?.response?.data?.message || error?.message || "Edit failed";
-      alert(msg);
-    }
   };
 
   // -----------------------
@@ -377,17 +373,32 @@ const counts = useMemo(() => {
 
       const grouped = { admins: [], monitors: [], faculties: [], students: [] };
 
+      const toNum = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      };
+
       parsed.data.forEach((row) => {
         const tRaw = (row.userType || row.usertype || row.type || "").toLowerCase().trim();
-        const t = toSingular(tRaw); // if CSV contains plural or singular, normalize
+        const t = toSingular(tRaw);
 
         const u = {
           registration_no:
             row.registration_no || row.reg || row.Reg || row.RegNo || row.registrationNo || "",
           name: row.name || row.fullname || row.full_name || "",
           father_name: row.father_name || row.father || row.fatherName || "",
-          semester: row.semester ? Number(row.semester) : undefined,
-          field: row.field || row.department || "",
+
+          department: row.department || row.dept || row.Department || "",
+          program: row.program || row.Program || row.field || row.Field || "",
+          level: row.level || row.Level || row.degree || row.Degree || "",
+
+          semester: row.semester ? toNum(row.semester) : undefined,
+
+          batchYear: row.batchYear ? toNum(row.batchYear) : undefined,
+          section: row.section || row.Section || "",
+          shift: row.shift || row.Shift || "",
+          status: row.status || row.Status || "Active",
+
           email: row.email || "",
           password: row.password || "",
           contact_no: row.contact_no || row.contact || "",
@@ -420,14 +431,10 @@ const counts = useMemo(() => {
     }
   };
 
-  // -----------------------
-  // RENDER
-  // -----------------------
   return (
     <div className="p-5 bg-white rounded shadow max-w-full">
       <h1 className="text-2xl font-bold mb-4">User Manager</h1>
 
-      {/* Top actions */}
       <div className="flex gap-3 mb-4 flex-wrap">
         <button
           onClick={() => setOpenAdd(true)}
@@ -451,41 +458,41 @@ const counts = useMemo(() => {
         </button>
       </div>
 
-      {/* FILTER BUTTONS */}
-      {/* FILTER BUTTONS (with totals) */}
-<div className="flex gap-3 mb-4 flex-wrap">
-  <button onClick={() => handleFilter("all")} className={`px-4 py-2 rounded cursor-pointer ${
-      activeType === "all" ? "bg-blue-600 text-white" : "bg-gray-200 hover:bg-gray-300"
-    }`}> All Users <span className="ml-2 text-sm opacity-80">({counts.total})</span>
-  </button>
-  <button onClick={() => handleFilter("admin")} className={`px-4 py-2 rounded cursor-pointer ${ 
-    activeType === "admin" ? "bg-blue-600 text-white" : "bg-gray-200 hover:bg-gray-300"}`}>Admins <span className="ml-2 text-sm opacity-80">({counts.admins})</span>
-  </button>
-  <button onClick={() => handleFilter("monitor")} className={`px-4 py-2 rounded cursor-pointer ${
-      activeType === "monitor" ? "bg-blue-600 text-white" : "bg-gray-200 hover:bg-gray-300"
-    }`}> Monitors <span className="ml-2 text-sm opacity-80">({counts.monitors})</span>
-  </button>
-  <button onClick={() => handleFilter("student")} className={`px-4 py-2 rounded cursor-pointer ${
-      activeType === "student" ? "bg-blue-600 text-white" : "bg-gray-200 hover:bg-gray-300"
-    }`}> Students <span className="ml-2 text-sm opacity-80">({counts.students})</span>
-  </button>
-</div>
+      <div className="flex gap-3 mb-4 flex-wrap">
+        <button
+          onClick={() => handleFilter("all")}
+          className={`px-4 py-2 rounded cursor-pointer ${
+            activeType === "all" ? "bg-blue-600 text-white" : "bg-gray-200 hover:bg-gray-300"
+          }`}
+        >
+          All Users <span className="ml-2 text-sm opacity-80">({counts.total})</span>
+        </button>
+        <button
+          onClick={() => handleFilter("admin")}
+          className={`px-4 py-2 rounded cursor-pointer ${
+            activeType === "admin" ? "bg-blue-600 text-white" : "bg-gray-200 hover:bg-gray-300"
+          }`}
+        >
+          Admins <span className="ml-2 text-sm opacity-80">({counts.admins})</span>
+        </button>
+        <button
+          onClick={() => handleFilter("monitor")}
+          className={`px-4 py-2 rounded cursor-pointer ${
+            activeType === "monitor" ? "bg-blue-600 text-white" : "bg-gray-200 hover:bg-gray-300"
+          }`}
+        >
+          Monitors <span className="ml-2 text-sm opacity-80">({counts.monitors})</span>
+        </button>
+        <button
+          onClick={() => handleFilter("student")}
+          className={`px-4 py-2 rounded cursor-pointer ${
+            activeType === "student" ? "bg-blue-600 text-white" : "bg-gray-200 hover:bg-gray-300"
+          }`}
+        >
+          Students <span className="ml-2 text-sm opacity-80">({counts.students})</span>
+        </button>
+      </div>
 
-      {/* <div className="flex gap-3 mb-4 flex-wrap">
-        {["all", "admin", "monitor", "faculty", "student"].map((type) => (
-          <button
-            key={type}
-            onClick={() => handleFilter(type)}
-            className={`px-4 py-2 rounded cursor-pointer ${
-              activeType === type ? "bg-blue-600 text-white" : "bg-gray-200 hover:bg-gray-300"
-            }`}
-          >
-            {type === "all" ? "All Users" : type.charAt(0).toUpperCase() + type.slice(1)}
-          </button>
-        ))}
-      </div> */}
-
-      {/* SEARCH */}
       <div className="flex items-center justify-between mb-4 gap-4">
         <div className="flex items-center bg-gray-100 px-3 rounded-lg flex-1 min-w-0">
           <FaSearch />
@@ -499,15 +506,14 @@ const counts = useMemo(() => {
         </div>
       </div>
 
-      {/* TABLE */}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse border">
           <thead>
             <tr className="bg-gray-200">
-              <th className="p-2 cursor-pointer hover:bg-gray-300" onClick={() => handleSort("name")}>
+              <th className="p-2 cursor-pointer hover:bg-gray-300" onClick={() => setSortField("name")}>
                 Name
               </th>
-              <th className="p-2 cursor-pointer hover:bg-gray-300" onClick={() => handleSort("registration_no")}>
+              <th className="p-2 cursor-pointer hover:bg-gray-300" onClick={() => setSortField("registration_no")}>
                 Reg No
               </th>
               <th className="p-2">Email</th>
@@ -555,7 +561,6 @@ const counts = useMemo(() => {
         </table>
       </div>
 
-      {/* PAGINATION */}
       <div className="flex justify-center mt-4 gap-2 flex-wrap">
         {Array.from({ length: totalPages }).map((_, i) => (
           <button
@@ -570,7 +575,6 @@ const counts = useMemo(() => {
         ))}
       </div>
 
-      {/* MODALS */}
       <AddUserModal
         open={openAdd}
         onClose={() => setOpenAdd(false)}
@@ -585,13 +589,10 @@ const counts = useMemo(() => {
         open={openEdit}
         onClose={() => setOpenEdit(false)}
         selectedUser={selectedUser}
-        editData={editData}
-        setEditData={setEditData}
-        showPasswordEdit={showPasswordEdit}
-        setShowPasswordEdit={setShowPasswordEdit}
-        onSave={() =>
-          selectedUser && editUser(selectedUser.registration_no, selectedUser.userType, editData)
-        }
+        onSuccess={() => {
+          setOpenEdit(false);
+          fetchUsers();
+        }}
       />
 
       <BulkUploadModal
