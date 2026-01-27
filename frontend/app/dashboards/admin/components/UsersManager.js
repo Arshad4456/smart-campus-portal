@@ -165,9 +165,10 @@ const UsersManager = () => {
     const total = allUsers.length;
     const admins = allUsers.filter((u) => u.userType === "admin").length;
     const monitors = allUsers.filter((u) => u.userType === "monitor").length;
+    const faculties = allUsers.filter((u) => u.userType === "faculty").length;
     const students = allUsers.filter((u) => u.userType === "student").length;
 
-    return { total, admins, monitors, students };
+    return { total, admins, monitors,faculties, students };
   }, [allUsers]);
 
   // -----------------------
@@ -482,6 +483,14 @@ const UsersManager = () => {
           }`}
         >
           Monitors <span className="ml-2 text-sm opacity-80">({counts.monitors})</span>
+        </button>
+        <button
+          onClick={() => handleFilter("faculty")}
+          className={`px-4 py-2 rounded cursor-pointer ${
+            activeType === "faculty" ? "bg-blue-600 text-white" : "bg-gray-200 hover:bg-gray-300"
+          }`}
+        >
+          Faculty <span className="ml-2 text-sm opacity-80">({counts.faculties})</span>
         </button>
         <button
           onClick={() => handleFilter("student")}

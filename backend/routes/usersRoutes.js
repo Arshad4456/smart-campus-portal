@@ -27,6 +27,96 @@ const toPluralListName = (t = "") => {
   return map[singular] || `${singular}s`;
 };
 
+/* =====================================================
+   Helpers
+===================================================== */
+const normalize = (v) => (v ?? "").toString().trim();
+const normalizeLower = (v) => normalize(v).toLowerCase();
+
+const daysInMonth = (year, month) => new Date(year, month, 0).getDate();
+
+const buildEmptyDaysMap = (year, month) => {
+  const d = daysInMonth(year, month);
+  const obj = {};
+  for (let i = 1; i <= d; i++) obj[String(i)] = "";
+  return obj;
+};
+
+/* =====================================================
+   Attendance Auto-Sync
+===================================================== */
+
+// ✅ Faculty → existing faculty attendance sheets
+async function syncNewFacultyToAttendanceSheets(faculty) {
+  const department = normalize(faculty.department);
+  const program = normalize(faculty.program);
+  const reg = normalize(faculty.registration_no);
+  const name = faculty.name || "";
+
+  if (!department || !program || !reg) return;
+
+  const sheets = await AttendanceModel.find({
+    userType: "faculty",
+    department,
+    program,
+  });
+
+  for (const sheet of sheets) {
+    const exists = sheet.records.some(
+      (r) => normalize(r.registration_no) === reg
+    );
+    if (exists) continue;
+
+    sheet.records.push({
+      registration_no: reg,
+      name,
+      days: buildEmptyDaysMap(sheet.year, sheet.month),
+    });
+
+    sheet.updatedBy = "system";
+    await sheet.save();
+  }
+}
+
+// ✅ Student → existing student attendance sheets
+async function syncNewStudentToAttendanceSheets(student) {
+  const department = normalize(student.department);
+  const program = normalize(student.program);
+  const level = normalize(student.level);
+  const semester = Number(student.semester);
+  const section = normalize(student.section).toUpperCase();
+
+  const reg = normalize(student.registration_no);
+  const name = student.name || "";
+
+  if (!department || !program || !level || !semester || !section || !reg) return;
+
+  const sheets = await AttendanceModel.find({
+    userType: "student",
+    department,
+    program,
+    level,
+    semester,
+    section,
+  });
+
+  for (const sheet of sheets) {
+    const exists = sheet.records.some(
+      (r) => normalize(r.registration_no) === reg
+    );
+    if (exists) continue;
+
+    sheet.records.push({
+      registration_no: reg,
+      name,
+      days: buildEmptyDaysMap(sheet.year, sheet.month),
+    });
+
+    sheet.updatedBy = "system";
+    await sheet.save();
+  }
+}
+
 /*=========================================
    GET ALL USERS
 =========================================*/

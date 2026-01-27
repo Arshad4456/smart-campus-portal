@@ -25,6 +25,7 @@ const attendanceSheetSchema = new mongoose.Schema(
     program: { type: String, default: "" },
     level: { type: String, default: "" }, // BS / MS / MPhil / PhD
     semester: { type: Number },
+    section: { type: String, default: "" },
 
     // Month & year
     month: { type: Number, required: true }, // 1..12
@@ -39,10 +40,16 @@ const attendanceSheetSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Prevent duplicate sheets for same scope
+// ✅ Unique for STUDENT sheets (includes section)
 attendanceSheetSchema.index(
-  { userType: 1, department: 1, program: 1, level: 1, semester: 1, month: 1, year: 1 },
-  { unique: true }
+  { userType: 1, department: 1, program: 1, level: 1, semester: 1, section: 1, month: 1, year: 1 },
+  { unique: true, partialFilterExpression: { userType: "student" } }
+);
+
+// ✅ Unique for FACULTY sheets (no level/semester/section)
+attendanceSheetSchema.index(
+  { userType: 1, department: 1, program: 1, month: 1, year: 1 },
+  { unique: true, partialFilterExpression: { userType: "faculty" } }
 );
 
 const Attendance = mongoose.model("Attendance", attendanceSheetSchema);

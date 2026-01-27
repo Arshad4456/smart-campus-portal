@@ -13,11 +13,7 @@ const router = express.Router();
 const normalize = (v) => (v ?? "").toString().trim();
 const normalizeLower = (v) => normalize(v).toLowerCase();
 
-const daysInMonth = (year, month) => {
-  // month: 1..12
-  return new Date(year, month, 0).getDate();
-};
-
+const daysInMonth = (year, month) => new Date(year, month, 0).getDate(); // month 1..12
 const buildEmptyDaysMap = (year, month) => {
   const d = daysInMonth(year, month);
   const m = {};
@@ -26,9 +22,8 @@ const buildEmptyDaysMap = (year, month) => {
 };
 
 /**
- * ✅ GET students list for making attendance (filtered)
- * GET /api/attendance/students?department=&program=&level=&semester=
- * Returns Active students only by default.
+ * ✅ GET students list (filtered)
+ * GET /api/attendance/students?department=&program=&level=&semester=&section=
  */
 router.get(
   "/students",
@@ -36,7 +31,7 @@ router.get(
   roleMiddleware(["admin", "faculty"]),
   async (req, res) => {
     try {
-      const { department = "", program = "", level = "", semester } = req.query;
+      const { department = "", program = "", level = "", semester, section = "" } = req.query;
 
       const db = await UsersModel.findOne();
       if (!db) return res.json({ success: true, data: [] });
@@ -50,12 +45,10 @@ router.get(
       if (program) students = students.filter((s) => normalizeLower(s.program) === normalizeLower(program));
       if (level) students = students.filter((s) => normalizeLower(s.level) === normalizeLower(level));
       if (semester !== undefined && semester !== "") students = students.filter((s) => Number(s.semester) === Number(semester));
+      if (section) students = students.filter((s) => normalizeLower(s.section) === normalizeLower(section));
 
       const result = students
-        .map((s) => ({
-          registration_no: s.registration_no,
-          name: s.name || "",
-        }))
+        .map((s) => ({ registration_no: s.registration_no, name: s.name || "" }))
         .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
       return res.json({ success: true, data: result });
@@ -66,8 +59,42 @@ router.get(
 );
 
 /**
- * ✅ GET existing attendance sheet (month)
- * GET /api/attendance/month?userType=student&department=&program=&level=&semester=&month=&year=
+ * ✅ GET faculties list (filtered)  ✅ NEW
+ * GET /api/attendance/faculties?department=&program=
+ */
+router.get(
+  "/faculties",
+  authMiddleware,
+  roleMiddleware(["admin"]),
+  async (req, res) => {
+    try {
+      const { department = "", program = "" } = req.query;
+
+      const db = await UsersModel.findOne();
+      if (!db) return res.json({ success: true, data: [] });
+
+      let faculties = db.faculties || [];
+
+      // If you later add faculty status, this will still work:
+      faculties = faculties.filter((f) => normalizeLower(f.status || "active") === "active");
+
+      if (department) faculties = faculties.filter((f) => normalizeLower(f.department) === normalizeLower(department));
+      if (program) faculties = faculties.filter((f) => normalizeLower(f.program) === normalizeLower(program));
+
+      const result = faculties
+        .map((f) => ({ registration_no: f.registration_no, name: f.name || "" }))
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+      return res.json({ success: true, data: result });
+    } catch (e) {
+      return res.status(500).json({ success: false, message: e.message || "Server error" });
+    }
+  }
+);
+
+/**
+ * ✅ GET one attendance sheet
+ * GET /api/attendance/month?userType=&department=&program=&level=&semester=&section=&month=&year=
  */
 router.get(
   "/month",
@@ -81,24 +108,26 @@ router.get(
         program = "",
         level = "",
         semester = "",
+        section = "",
         month,
         year,
       } = req.query;
 
-      if (!month || !year) {
-        return res.status(400).json({ success: false, message: "month and year are required" });
-      }
+      if (!month || !year) return res.status(400).json({ success: false, message: "month and year are required" });
 
-      const sheet = await AttendanceModel.findOne({
+      const filter = {
         userType,
         department: normalize(department),
         program: normalize(program),
         level: normalize(level),
-        semester: semester === "" ? undefined : Number(semester),
         month: Number(month),
         year: Number(year),
-      });
+      };
 
+      if (semester !== "") filter.semester = Number(semester);
+      if (section) filter.section = normalize(section);
+
+      const sheet = await AttendanceModel.findOne(filter);
       return res.json({ success: true, data: sheet || null });
     } catch (e) {
       return res.status(500).json({ success: false, message: e.message || "Server error" });
@@ -107,8 +136,8 @@ router.get(
 );
 
 /**
- * ✅ GET months that exist for a given scope/year
- * GET /api/attendance/months?userType=student&department=&program=&level=&semester=&year=2026
+ * ✅ GET months list for a given scope/year
+ * GET /api/attendance/months?...&year=
  */
 router.get(
   "/months",
@@ -116,21 +145,22 @@ router.get(
   roleMiddleware(["admin", "faculty"]),
   async (req, res) => {
     try {
-      const { userType = "student", department = "", program = "", level = "", semester = "", year } = req.query;
+      const { userType = "student", department = "", program = "", level = "", semester = "", section = "", year } = req.query;
 
-      if (!year) {
-        return res.status(400).json({ success: false, message: "year is required" });
-      }
+      if (!year) return res.status(400).json({ success: false, message: "year is required" });
 
-      const list = await AttendanceModel.find({
+      const filter = {
         userType,
         department: normalize(department),
         program: normalize(program),
         level: normalize(level),
-        semester: semester === "" ? undefined : Number(semester),
         year: Number(year),
-      }).select("month year");
+      };
 
+      if (semester !== "") filter.semester = Number(semester);
+      if (section) filter.section = normalize(section);
+
+      const list = await AttendanceModel.find(filter).select("month year");
       const months = [...new Set(list.map((x) => x.month))].sort((a, b) => a - b);
 
       return res.json({ success: true, data: months });
@@ -141,9 +171,8 @@ router.get(
 );
 
 /**
- * ✅ CREATE (or return existing) monthly attendance sheet
+ * ✅ CREATE monthly attendance sheet (student OR faculty)
  * POST /api/attendance/month
- * body: { userType, department, program, level, semester, month, year }
  */
 router.post(
   "/month",
@@ -151,66 +180,80 @@ router.post(
   roleMiddleware(["admin", "faculty"]),
   async (req, res) => {
     try {
-      const { userType = "student", department = "", program = "", level = "", semester, month, year } = req.body;
+      const { userType = "student", department = "", program = "", level = "", semester, section = "", month, year } = req.body;
 
-      if (!month || !year) {
-        return res.status(400).json({ success: false, message: "month and year are required" });
-      }
+      if (!month || !year) return res.status(400).json({ success: false, message: "month and year are required" });
 
-      // For student sheet, require these selections
+      // ✅ Student requires full scope
       if (userType === "student") {
-        if (!department || !program || !level || !semester) {
+        if (!department || !program || !level || !semester || !section) {
           return res.status(400).json({
             success: false,
-            message: "department, program, level, semester are required for student attendance",
+            message: "department, program, level, semester, section are required for student attendance",
           });
         }
       }
 
-      // Find students for this scope (Active only)
-      let students = [];
+      // ✅ Faculty requires only department + program
+      if (userType === "faculty") {
+        if (!department || !program) {
+          return res.status(400).json({
+            success: false,
+            message: "department and program are required for faculty attendance",
+          });
+        }
+      }
+
+      let people = [];
+
+      const db = await UsersModel.findOne();
+
       if (userType === "student") {
-        const db = await UsersModel.findOne();
-        students = (db?.students || [])
+        people = (db?.students || [])
           .filter((s) => normalizeLower(s.status || "active") === "active")
           .filter((s) => normalizeLower(s.department) === normalizeLower(department))
           .filter((s) => normalizeLower(s.program) === normalizeLower(program))
           .filter((s) => normalizeLower(s.level) === normalizeLower(level))
           .filter((s) => Number(s.semester) === Number(semester))
-          .map((s) => ({
-            registration_no: s.registration_no,
-            name: s.name || "",
-          }))
+          .filter((s) => normalizeLower(s.section) === normalizeLower(section))
+          .map((s) => ({ registration_no: s.registration_no, name: s.name || "" }))
+          .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      }
+
+      if (userType === "faculty") {
+        people = (db?.faculties || [])
+          .filter((f) => normalizeLower(f.status || "active") === "active")
+          .filter((f) => normalizeLower(f.department) === normalizeLower(department))
+          .filter((f) => normalizeLower(f.program) === normalizeLower(program))
+          .map((f) => ({ registration_no: f.registration_no, name: f.name || "" }))
           .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       }
 
       const baseDays = buildEmptyDaysMap(Number(year), Number(month));
-
-      // build rows
-      const records = students.map((s) => ({
-        registration_no: s.registration_no,
-        name: s.name,
+      const records = people.map((p) => ({
+        registration_no: p.registration_no,
+        name: p.name,
         days: baseDays,
       }));
 
       const createdBy = req.user?.registration_no || "";
 
-      // upsert (create if not exists)
       const filter = {
         userType,
         department: normalize(department),
         program: normalize(program),
-        level: normalize(level),
-        semester: userType === "student" ? Number(semester) : undefined,
+        level: userType === "student" ? normalize(level) : "", // keep empty for faculty
         month: Number(month),
         year: Number(year),
       };
 
-      let sheet = await AttendanceModel.findOne(filter);
-
-      if (sheet) {
-        return res.json({ success: true, message: "Sheet already exists", data: sheet });
+      if (userType === "student") {
+        filter.semester = Number(semester);
+        filter.section = normalize(section);
       }
+
+      let sheet = await AttendanceModel.findOne(filter);
+      if (sheet) return res.json({ success: true, message: "Sheet already exists", data: sheet });
 
       sheet = await AttendanceModel.create({
         ...filter,
@@ -221,23 +264,14 @@ router.post(
 
       return res.status(201).json({ success: true, message: "Attendance sheet created", data: sheet });
     } catch (e) {
-      // unique index collision safe
-      if (String(e?.code) === "11000") {
-        const existing = await AttendanceModel.findOne(req.body);
-        return res.json({ success: true, message: "Sheet already exists", data: existing || null });
-      }
       return res.status(500).json({ success: false, message: e.message || "Server error" });
     }
   }
 );
 
 /**
- * ✅ UPDATE monthly attendance sheet records
+ * ✅ UPDATE monthly sheet
  * PUT /api/attendance/month/:id
- * body: { records: [...] }
- *
- * Admin: can update any.
- * Faculty: allowed only for student sheets (as required).
  */
 router.put(
   "/month/:id",
@@ -264,7 +298,6 @@ router.put(
 
       sheet.records = records;
       sheet.updatedBy = req.user?.registration_no || "";
-
       await sheet.save();
 
       return res.json({ success: true, message: "Attendance updated", data: sheet });
@@ -274,40 +307,71 @@ router.put(
   }
 );
 
-
-// ✅ Delete whole month attendance (by filters)
+/**
+ * ✅ DELETE whole month attendance sheet (student OR faculty)
+ * DELETE /api/attendance/month
+ * body: { userType, department, program, level?, semester?, section?, month, year }
+ */
 router.delete(
   "/month",
   authMiddleware,
-  roleMiddleware(["admin"]),
+  roleMiddleware(["admin"]), // recommended: only admin can delete
   async (req, res) => {
     try {
-      const { year, month, userType, department, program, level, semester } = req.body;
+      const {
+        userType,
+        department,
+        program,
+        level,
+        semester,
+        section,
+        month,
+        year,
+      } = req.body;
 
-      if (!year || !month || !userType) {
-        return res.status(400).json({ success: false, message: "year, month, userType required" });
+      if (!userType || !month || !year) {
+        return res.status(400).json({ success: false, message: "userType, month, year are required" });
       }
 
       const filter = {
-        year: Number(year),
+        userType: normalize(userType),
         month: Number(month),
-        userType: String(userType),
-        department: department ? String(department).trim() : "",
-        program: program ? String(program).trim() : "",
-        level: level ? String(level).trim() : "",
-        semester: semester !== undefined && semester !== null && semester !== "" ? Number(semester) : undefined,
+        year: Number(year),
+        department: normalize(department),
+        program: normalize(program),
       };
 
+      // ✅ student sheet needs full scope
+      if (normalize(userType) === "student") {
+        filter.level = normalize(level);
+        filter.semester = Number(semester);
+        filter.section = normalize(section);
+      }
+
+      // ✅ faculty sheet: in your create route you store level="" for faculty
+      if (normalize(userType) === "faculty") {
+        filter.level = ""; // must match stored value
+      }
+
       const result = await AttendanceModel.deleteMany(filter);
+
+      if (result.deletedCount === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "No matching month record found to delete.",
+        });
+      }
 
       return res.json({
         success: true,
         message: `Deleted month record. Removed: ${result.deletedCount}`,
         deletedCount: result.deletedCount,
       });
-    } catch (error) {
-      res.status(500).json({ success: false, message: error.message });
+    } catch (e) {
+      return res.status(500).json({ success: false, message: e.message || "Server error" });
     }
   }
 );
+
+
 export default router;
